@@ -1,0 +1,46 @@
+name: Build APK
+
+on:
+  push:
+    branches: ["**"]   # mọi nhánh (main hay master đều chạy)
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # Dự án không kèm gradle wrapper nên dùng Gradle cài sẵn bởi action này
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Đổi tên APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk ScreenWatcher-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScreenWatcher-debug-apk
+          path: ScreenWatcher-debug.apk
+
+      # Đẩy tag dạng v1.0 sẽ tự tạo Release kèm file APK
+      - name: Tạo GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ScreenWatcher-debug.apk

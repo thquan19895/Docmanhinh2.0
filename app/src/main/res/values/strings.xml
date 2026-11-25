@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">ScreenWatcher</string>
+    <string name="acc_desc">Dùng để thực hiện thao tác chạm/vuốt tự động khi ứng dụng phát hiện chữ hoặc hình ảnh đã cài đặt trên màn hình.</string>
+</resources>

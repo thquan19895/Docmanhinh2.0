@@ -8,12 +8,16 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -86,14 +90,15 @@ class RecordPreviewActivity : Activity() {
         val steps = RecState.steps.toList()
         list.removeAllViews()
         val pending = steps.count { !it.ready }
-        val weak = steps.count { it.ready && it.level >= 1 }
+        val weak = steps.count { it.ready && it.activeLevel() >= 1 }
         summary.text = if (steps.isEmpty()) "Chưa có bước nào."
-        else "Đã ghi ${steps.size} bước" + (if (pending > 0) " · đang phân tích $pending bước…" else " · $weak bước ảnh yếu (⚠/❌)") +
-            ".\nBước ❌ mặc định chuyển thành chạm đúng toạ độ cố định (nối vào bước trước). Bước 1 luôn nhận diện bằng ảnh."
-        val ok = steps.isNotEmpty() && pending == 0 && steps[0].crop != null
+        else "Đã ghi ${steps.size} bước" + (if (pending > 0) " · đang phân tích $pending bước…" else " · $weak bước đang chọn cách nhận diện yếu (⚠/❌)") +
+            ".\nMỗi bước chọn nhận diện bằng Ảnh, Chữ (OCR) hoặc Toạ độ cố định (nối vào bước trước). Bước 1 không dùng được toạ độ cố định."
+        val first = steps.firstOrNull()
+        val ok = first != null && pending == 0 && (first.crop != null || first.textLevel >= 0)
         saveBtn.isEnabled = ok; runBtn.isEnabled = ok
-        if (steps.isNotEmpty() && pending == 0 && steps[0].crop == null) {
-            summary.text = summary.text.toString() + "\n⚠ Bước 1 không lấy được ảnh (màn hình bị chặn chụp?) nên chưa lưu được."
+        if (first != null && pending == 0 && !ok) {
+            summary.text = summary.text.toString() + "\n⚠ Bước 1 không có ảnh lẫn chữ (màn hình bị chặn chụp?) nên chưa lưu được."
         }
 
         for ((i, s) in steps.withIndex()) {
@@ -116,20 +121,42 @@ class RecordPreviewActivity : Activity() {
             val gapTxt = if (i == 0) "" else " · nghỉ ${"%.1f".format(s.gapBeforeMs / 1000.0)}s"
             col.addView(tv("Bước ${i + 1} · ${kindName(s)}$gapTxt", 15f, bold = true))
             if (s.ready) {
-                val (icon, color) = when (s.level) {
+                fun lvl(l: Int) = when (l) {
                     0 -> "✅ Tốt" to 0xFF2E7D32.toInt()
                     1 -> "⚠ Yếu" to 0xFFEF6C00.toInt()
                     else -> "❌ Rất yếu" to 0xFFC62828.toInt()
                 }
-                col.addView(tv(icon, 14f, color, true))
+                val (ic, co) = lvl(s.level)
+                col.addView(tv("Ảnh: $ic", 13f, co, true))
                 col.addView(tv(s.reasons.joinToString("\n") { "• $it" }, 12f, 0xFF555555.toInt()))
-                if (s.crop != null) {
-                    col.addView(CheckBox(this).apply {
-                        text = "Nhận diện bằng ảnh"
-                        setTextColor(ink)
-                        isChecked = i == 0 || s.useImage
-                        isEnabled = i != 0
-                        setOnCheckedChangeListener { _, v -> s.useImage = v }
+                if (s.textLevel >= 0) {
+                    val (tc, tcol) = lvl(s.textLevel)
+                    col.addView(tv("Chữ: $tc  “${s.ocrRaw}”", 13f, tcol, true))
+                }
+                col.addView(tv(s.textReasons.joinToString("\n") { "• $it" }, 12f, 0xFF555555.toInt()))
+
+                val group = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+                fun radio(label: String, m: Int, enabled: Boolean) {
+                    group.addView(RadioButton(this).apply {
+                        text = label; setTextColor(ink); isEnabled = enabled && !(i == 0 && m == RecStep.FIXED)
+                        id = View.generateViewId()
+                        isChecked = RecBuild.effectiveMode(s, i) == m
+                        setOnClickListener { s.mode = m; render() }
+                    })
+                }
+                radio("Nhận diện bằng ảnh", RecStep.IMAGE, s.crop != null)
+                radio("Nhận diện bằng chữ (OCR)", RecStep.TEXT, s.textLevel >= 0)
+                radio("Chạm toạ độ cố định", RecStep.FIXED, true)
+                col.addView(group)
+                if (RecBuild.effectiveMode(s, i) == RecStep.TEXT) {
+                    col.addView(tv("Chữ cần tìm (sửa nếu OCR đọc sai; dùng | để thêm lựa chọn):", 12f, 0xFF555555.toInt()))
+                    col.addView(EditText(this).apply {
+                        setTextColor(ink); setText(s.editedText); textSize = 14f
+                        addTextChangedListener(object : TextWatcher {
+                            override fun afterTextChanged(e: Editable?) { s.editedText = e?.toString() ?: "" }
+                            override fun beforeTextChanged(t: CharSequence?, a: Int, b: Int, c: Int) {}
+                            override fun onTextChanged(t: CharSequence?, a: Int, b: Int, c: Int) {}
+                        })
                     })
                 }
             }

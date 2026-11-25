@@ -98,6 +98,13 @@ object TextMatcher {
             .addOnFailureListener { c.resumeWithException(it) }
     }
 
+    /** Một dòng chữ OCR đọc được + khung của nó (toạ độ trong ảnh đưa vào). */
+    class OcrLine(val text: String, val box: android.graphics.Rect?)
+
+    /** Đọc các dòng chữ trong ảnh (giữ nguyên chữ gốc, dùng cho tính năng Ghi thao tác). */
+    suspend fun readLines(bmp: Bitmap): List<OcrLine> =
+        recognize(bmp).textBlocks.flatMap { it.lines }.map { OcrLine(it.text, it.boundingBox) }
+
     /** Đọc toàn bộ chữ trong ảnh, đã chuẩn hoá (dùng cho so sánh thay đổi). */
     suspend fun readNorm(bmp: Bitmap): String = norm(recognize(bmp).text)
 

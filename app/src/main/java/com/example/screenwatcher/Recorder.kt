@@ -38,7 +38,28 @@ class RecStep(
     @Volatile var searchRegion: Region? = null // vùng sẽ quét khi chạy
     @Volatile var level = 0              // 0 = tốt, 1 = yếu, 2 = rất yếu
     @Volatile var reasons: List<String> = emptyList()
-    @Volatile var useImage = true        // true: nhận diện bằng ảnh; false: chạm toạ độ cố định
+    @Volatile var mode = IMAGE           // cách nhận diện: IMAGE / TEXT / FIXED (chạm toạ độ cố định)
+
+    // ---- OCR chữ quanh điểm chạm ----
+    @Volatile var textLevel = -1         // -1 = không có chữ dùng được, 0 = tốt, 1 = yếu
+    @Volatile var textReasons: List<String> = emptyList()
+    @Volatile var ocrRaw = ""            // chữ OCR đọc được (nguyên gốc)
+    @Volatile var editedText = ""        // chữ sẽ dùng cho luật (người dùng sửa được)
+    @Volatile var textBox: Region? = null     // khung dòng chữ trên màn hình
+    @Volatile var textRegion: Region? = null  // vùng sẽ quét chữ khi chạy
+
+    /** Mức đánh giá của cách nhận diện đang chọn (0 tốt, 1 yếu, 2 rất yếu). */
+    fun activeLevel(): Int = when (mode) {
+        TEXT -> if (textLevel < 0) 2 else textLevel
+        IMAGE -> level
+        else -> 0
+    }
+
+    companion object {
+        const val IMAGE = 0
+        const val TEXT = 1
+        const val FIXED = 2
+    }
 }
 
 object RecState {
@@ -55,7 +76,7 @@ object RecState {
 object StepAnalyzer {
     private fun lum(p: Int): Int = (((p shr 16) and 255) * 30 + ((p shr 8) and 255) * 59 + (p and 255) * 11) / 100
 
-    fun analyze(step: RecStep, frame: Bitmap, sizePx: Int) {
+    suspend fun analyze(step: RecStep, frame: Bitmap, sizePx: Int) {
         val fw = frame.width
         val fh = frame.height
         val size = minOf(sizePx, fw, fh)
@@ -111,6 +132,65 @@ object StepAnalyzer {
         }
         if (reasons.isEmpty()) reasons.add("Ảnh rõ, đủ chi tiết")
 
+        // 2b) OCR chữ quanh điểm chạm: lấy dòng chữ chứa (hoặc gần) điểm chạm
+        try {
+            val wl = (step.x1 - size * 3).coerceAtLeast(0)
+            val wt = (step.y1 - size).coerceAtLeast(0)
+            val wr = (step.x1 + size * 3).coerceAtMost(fw)
+            val wb = (step.y1 + size).coerceAtMost(fh)
+            if (wr - wl >= 24 && wb - wt >= 24) {
+                val win = Bitmap.createBitmap(frame, wl, wt, wr - wl, wb - wt)
+                val lines = try {
+                    TextMatcher.readLines(win).filter { ln ->
+                        val n = TextMatcher.norm(ln.text)
+                        !(n.contains("buoc") && n.contains("dung")) // bỏ thanh GHI của app
+                    }
+                } finally { if (win !== frame) win.recycle() }
+                var best: TextMatcher.OcrLine? = null
+                var bestBox: Region? = null
+                var bestD = Double.MAX_VALUE
+                for (ln in lines) {
+                    val b = ln.box ?: continue
+                    val bl = b.left + wl; val bt = b.top + wt; val br = b.right + wl; val bb = b.bottom + wt
+                    val dx = maxOf(bl - step.x1, 0, step.x1 - br).toDouble()
+                    val dy = maxOf(bt - step.y1, 0, step.y1 - bb).toDouble()
+                    val dist = hypot(dx, dy)
+                    if (dist < bestD) { bestD = dist; best = ln; bestBox = Region(bl, bt, br, bb) }
+                }
+                val chosen = best
+                if (chosen != null && bestBox != null && bestD <= size * 0.75) {
+                    val raw = chosen.text.replace("\n", " ").trim()
+                    val nrm = TextMatcher.fold(TextMatcher.norm(raw))
+                    val tr = ArrayList<String>()
+                    var tl = 0
+                    if (nrm.length < 2) {
+                        tl = -1; tr.add("Chữ đọc được quá ngắn / không rõ")
+                    } else {
+                        if (nrm.length == 2) { tl = 1; tr.add("Chữ rất ngắn, dễ nhận nhầm") }
+                        if (nrm.length > 35) { tl = 1; tr.add("Chữ dài, dễ bị đọc sai một phần") }
+                        val dup = lines.count { o ->
+                            if (o === chosen) false else {
+                                val n = TextMatcher.fold(TextMatcher.norm(o.text))
+                                n.isNotEmpty() && (n.contains(nrm) || nrm.contains(n))
+                            }
+                        }
+                        if (dup > 0) { tl = 1; tr.add("Có $dup dòng chữ giống ở chỗ khác trong vùng quét") }
+                        if (tr.isEmpty()) tr.add("Chữ rõ, không bị trùng")
+                    }
+                    step.ocrRaw = raw
+                    step.editedText = raw
+                    step.textLevel = tl
+                    step.textReasons = tr
+                    step.textBox = bestBox
+                    step.textRegion = Region(wl, wt, wr, wb)
+                } else {
+                    step.textReasons = listOf("Không thấy chữ ở chỗ chạm")
+                }
+            }
+        } catch (ex: Exception) {
+            step.textReasons = listOf("Không đọc được chữ (${ex.message})")
+        }
+
         // 3) Hình thu nhỏ: khung ngữ cảnh 3x, đánh dấu ảnh mẫu (đỏ) và điểm chạm
         val ctx = minOf(size * 3, fw, fh)
         val tl = (step.x1 - ctx / 2).coerceIn(0, fw - ctx)
@@ -124,6 +204,10 @@ object StepAnalyzer {
             val c = Canvas(scaled)
             val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3f; color = Color.RED }
             c.drawRect(RectF((l - tl) * k, (t - tt) * k, (l - tl + size) * k, (t - tt + size) * k), stroke)
+            step.textBox?.let { tb ->
+                val os = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3f; color = 0xFFFB8C00.toInt() }
+                c.drawRect(RectF((tb.l - tl) * k, (tb.t - tt) * k, (tb.r - tl) * k, (tb.b - tt) * k), os)
+            }
             val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0xFF1E88E5.toInt() }
             if (step.kind == "swipe") {
                 val ln = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 4f; color = 0xFF43A047.toInt() }
@@ -138,7 +222,12 @@ object StepAnalyzer {
         step.searchRegion = Region(sl, st, sr, sb)
         step.level = level
         step.reasons = reasons
-        step.useImage = level < 2
+        step.mode = when {
+            step.textLevel == 0 -> RecStep.TEXT
+            level < 2 -> RecStep.IMAGE
+            step.textLevel == 1 -> RecStep.TEXT
+            else -> RecStep.FIXED
+        }
     }
 }
 
@@ -298,7 +387,7 @@ class RecordOverlay(
 
 /** Biến các bước đã ghi thành luật tuần tự và lưu thành bộ luật. */
 object RecBuild {
-    private fun macroFor(s: RecStep, useMatch: Boolean, wait: Long): String {
+    private fun macroFor(s: RecStep, useMatch: Boolean, wait: Long, cx: Int = s.x1, cy: Int = s.y1): String {
         val w = if (wait > 0) " wait=$wait" else ""
         return when (s.kind) {
             "swipe" -> {
@@ -308,9 +397,8 @@ object RecBuild {
             else -> {
                 val ms = if (s.kind == "longtap") " ms=${s.durMs}" else ""
                 if (useMatch) {
-                    val r = s.region
-                    val dx = if (r != null) s.x1 - (r.l + r.r) / 2 else 0
-                    val dy = if (r != null) s.y1 - (r.t + r.b) / 2 else 0
+                    val dx = s.x1 - cx
+                    val dy = s.y1 - cy
                     "tap_match" + (if (dx != 0 || dy != 0) " $dx $dy" else "") + ms + w
                 } else {
                     (if (s.kind == "longtap") "longtap" else "tap") + " ${s.x1} ${s.y1}" + (if (s.kind == "longtap") " ${s.durMs}" else "") + w
@@ -319,22 +407,44 @@ object RecBuild {
         }
     }
 
-    /** Trả về danh sách luật. Bước nào dùng ảnh → luật Hình riêng; bước dùng toạ độ cố định → nối vào macro của luật trước. */
+    /** Cách nhận diện thực sự dùng cho bước [i] (bước 1 không được là toạ độ cố định). */
+    fun effectiveMode(s: RecStep, i: Int): Int {
+        val canText = s.textLevel >= 0 && s.textBox != null && s.editedText.isNotBlank()
+        val canImage = s.crop != null && s.region != null
+        val want = if (i == 0 && s.mode == RecStep.FIXED) (if (canText) RecStep.TEXT else RecStep.IMAGE) else s.mode
+        return when (want) {
+            RecStep.TEXT -> if (canText) RecStep.TEXT else if (canImage) RecStep.IMAGE else RecStep.FIXED
+            RecStep.IMAGE -> if (canImage) RecStep.IMAGE else if (canText) RecStep.TEXT else RecStep.FIXED
+            else -> RecStep.FIXED
+        }
+    }
+
+    /** Trả về danh sách luật. Bước dùng ảnh/chữ → một luật riêng; bước dùng toạ độ cố định → nối vào macro của luật trước. */
     fun build(c: Context, steps: List<RecStep>, namePrefix: String): List<Rule> {
         val rules = ArrayList<Rule>()
         for ((i, s) in steps.withIndex()) {
-            val img = s.crop != null && s.region != null && (i == 0 || s.useImage)
-            if (img) {
-                val r = Rule(name = "$namePrefix ${rules.size + 1}", type = Rule.IMAGE, threshold = 0.85, cooldownMs = 1000)
-                r.regions = mutableListOf(s.searchRegion ?: s.region!!)
-                r.tplRegion = s.region
-                r.macro = macroFor(s, useMatch = true, wait = 0)
-                FileOutputStream(RuleStore.templateFile(c, r.id)).use { s.crop!!.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                rules.add(r)
-            } else if (rules.isNotEmpty()) {
-                val gap = s.gapBeforeMs.coerceIn(200L, 5000L)
-                val last = rules.last()
-                last.macro = last.macro.trimEnd() + "\n" + macroFor(s, useMatch = false, wait = gap)
+            when (effectiveMode(s, i)) {
+                RecStep.IMAGE -> {
+                    val r = Rule(name = "$namePrefix ${rules.size + 1}", type = Rule.IMAGE, threshold = 0.85, cooldownMs = 1000)
+                    val rg = s.region!!
+                    r.regions = mutableListOf(s.searchRegion ?: rg)
+                    r.tplRegion = rg
+                    r.macro = macroFor(s, useMatch = true, wait = 0, cx = (rg.l + rg.r) / 2, cy = (rg.t + rg.b) / 2)
+                    FileOutputStream(RuleStore.templateFile(c, r.id)).use { s.crop!!.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    rules.add(r)
+                }
+                RecStep.TEXT -> {
+                    val tb = s.textBox!!
+                    val r = Rule(name = "$namePrefix ${rules.size + 1}", type = Rule.TEXT, text = s.editedText.trim(), fuzzy = true, threshold = 0.8, cooldownMs = 1000)
+                    r.regions = mutableListOf(s.textRegion ?: tb)
+                    r.macro = macroFor(s, useMatch = true, wait = 0, cx = (tb.l + tb.r) / 2, cy = (tb.t + tb.b) / 2)
+                    rules.add(r)
+                }
+                else -> if (rules.isNotEmpty()) {
+                    val gap = s.gapBeforeMs.coerceIn(200L, 5000L)
+                    val last = rules.last()
+                    last.macro = last.macro.trimEnd() + "\n" + macroFor(s, useMatch = false, wait = gap)
+                }
             }
         }
         return rules

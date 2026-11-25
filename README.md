@@ -101,7 +101,7 @@ adb install -r apk/ScreenWatcher-debug.apk
 1. Giữ nút nổi 0,5 giây → **● Ghi**. Bật sẵn Dịch vụ trợ năng. Thanh đỏ trên cùng hiện số bước, chạm **■ Dừng** để kết thúc.
 2. Cứ thao tác bình thường (chạm, chạm giữ, vuốt). App bắt thao tác rồi chạm thay vào app bên dưới, đồng thời cắt ảnh mẫu quanh điểm chạm.
 3. Dừng ghi → mở **màn hình xem trước**: hình thu nhỏ từng bước (khung đỏ = ảnh mẫu, chấm xanh = điểm chạm) và đánh giá ✅ Tốt / ⚠ Yếu / ❌ Rất yếu kèm lý do (ảnh đơn sắc, ít chi tiết, có hình giống ở chỗ khác trong vùng quét).
-4. Mỗi bước có ô **Nhận diện bằng ảnh**. Bỏ chọn (hoặc bước ❌) → chạm đúng toạ độ cố định, nối vào macro của bước trước. Bước 1 luôn dùng ảnh.
+4. Mỗi bước chọn một trong ba cách nhận diện: **Ảnh**, **Chữ (OCR)** (hiện chữ đọc được, sửa được nếu đọc sai) hoặc **Chạm toạ độ cố định** (nối vào macro của bước trước). Mặc định: có chữ rõ → Chữ; không thì Ảnh; ảnh lẫn chữ đều kém → toạ độ cố định. Bước 1 không dùng toạ độ cố định. Chữ OCR cũng được đánh giá (quá ngắn, dòng chữ trùng ở chỗ khác...).
 5. **Lưu thành bộ luật** (luật tuần tự, 1 vòng) hoặc **Lưu và chạy ngay**. Danh sách luật hiện tại không bị đổi khi chỉ lưu.
 
 Giới hạn: kéo thả liên tục (cần xoay nhân vật) không mượt vì thao tác được phát lại sau khi nhấc tay; màn hình chặn chụp sẽ không có ảnh mẫu.

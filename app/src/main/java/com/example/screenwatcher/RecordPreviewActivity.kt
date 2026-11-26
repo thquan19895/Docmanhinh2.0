@@ -19,6 +19,7 @@ import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import java.text.SimpleDateFormat
@@ -84,6 +85,30 @@ class RecordPreviewActivity : Activity() {
     override fun onResume() { super.onResume(); h.post(poll) }
     override fun onPause() { super.onPause(); h.removeCallbacks(poll) }
 
+    /** Thanh trượt ngưỡng 0.60–0.98 kèm số đề xuất và giải thích. */
+    private fun thresholdRow(title: String, cur: Double, sug: Double, note: String, onSet: (Double) -> Unit): LinearLayout {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val lab = tv("", 13f, ink, true)
+        fun upd(v: Double) { lab.text = title + ": " + "%.2f".format(v) + "  (đề xuất " + "%.2f".format(sug) + ")" }
+        upd(cur)
+        box.addView(lab)
+        box.addView(SeekBar(this).apply {
+            max = 38
+            progress = (Math.round(cur * 100).toInt() - 60).coerceIn(0, 38)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
+                    val v = (60 + p) / 100.0
+                    onSet(v); upd(v)
+                }
+                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                override fun onStopTrackingTouch(sb: SeekBar?) {}
+            })
+        })
+        box.addView(tv("• $note\n• Cao = khớp chặt, ít nhận nhầm nhưng dễ bỏ sót; thấp = ngược lại.", 12f, 0xFF555555.toInt()))
+        box.addView(Button(this).apply { text = "Dùng đề xuất"; setOnClickListener { onSet(sug); render() } })
+        return box
+    }
+
     private fun kindName(s: RecStep) = when (s.kind) { "swipe" -> "Vuốt"; "longtap" -> "Chạm giữ"; else -> "Chạm" }
 
     private fun render() {
@@ -148,6 +173,10 @@ class RecordPreviewActivity : Activity() {
                 radio("Nhận diện bằng chữ (OCR)", RecStep.TEXT, s.textLevel >= 0)
                 radio("Chạm toạ độ cố định", RecStep.FIXED, true)
                 col.addView(group)
+                when (RecBuild.effectiveMode(s, i)) {
+                    RecStep.IMAGE -> col.addView(thresholdRow("Ngưỡng ảnh", s.imgThreshold, s.imgSuggested, s.imgThrNote) { s.imgThreshold = it })
+                    RecStep.TEXT -> col.addView(thresholdRow("Ngưỡng chữ", s.textThreshold, s.textSuggested, s.textThrNote) { s.textThreshold = it })
+                }
                 if (RecBuild.effectiveMode(s, i) == RecStep.TEXT) {
                     col.addView(tv("Chữ cần tìm (sửa nếu OCR đọc sai; dùng | để thêm lựa chọn):", 12f, 0xFF555555.toInt()))
                     col.addView(EditText(this).apply {

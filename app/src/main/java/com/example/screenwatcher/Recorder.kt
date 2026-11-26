@@ -45,6 +45,14 @@ class RecStep(
     @Volatile var textReasons: List<String> = emptyList()
     @Volatile var ocrRaw = ""            // chữ OCR đọc được (nguyên gốc)
     @Volatile var editedText = ""        // chữ sẽ dùng cho luật (người dùng sửa được)
+
+    // ---- ngưỡng: đề xuất tự động + giá trị đang chọn ----
+    @Volatile var imgSuggested = 0.85
+    @Volatile var imgThreshold = 0.85
+    @Volatile var imgThrNote = ""
+    @Volatile var textSuggested = 0.8
+    @Volatile var textThreshold = 0.8
+    @Volatile var textThrNote = ""
     @Volatile var textBox: Region? = null     // khung dòng chữ trên màn hình
     @Volatile var textRegion: Region? = null  // vùng sẽ quét chữ khi chạy
 
@@ -86,6 +94,8 @@ object StepAnalyzer {
         val crop = Bitmap.createBitmap(frame, l, t, size, size)
         val reasons = ArrayList<String>()
         var level = 0
+        var lowDetail = false
+        var dupScore = 0.0
 
         // 1) Độ chi tiết: độ lệch chuẩn độ sáng + tỉ lệ điểm có cạnh
         val px = IntArray(size * size)
@@ -104,9 +114,9 @@ object StepAnalyzer {
         }
         val edgeFrac = edges.toDouble() / ((size - 1) * (size - 1))
         if (std < 10 || edgeFrac < 0.02) {
-            level = 2; reasons.add("Gần như đơn sắc, rất dễ nhận nhầm")
+            level = 2; lowDetail = true; reasons.add("Gần như đơn sắc, rất dễ nhận nhầm")
         } else if (std < 22 || edgeFrac < 0.06) {
-            level = 1; reasons.add("Ít chi tiết, có thể nhận nhầm")
+            level = 1; lowDetail = true; reasons.add("Ít chi tiết, có thể nhận nhầm")
         }
 
         // 2) Có hình giống ở chỗ khác trong vùng sẽ quét không (che chính ảnh mẫu rồi tìm lại)
@@ -125,12 +135,29 @@ object StepAnalyzer {
                 val hit = try { TemplateMatcher.find(sub, crop, 0.85) } catch (ex: Exception) { null }
                 sub.recycle()
                 if (hit != null) {
+                    dupScore = hit.score
                     if (hit.score >= 0.93) level = 2 else if (level < 1) level = 1
                     reasons.add("Có hình giống ở chỗ khác trong vùng quét (độ giống ${"%.2f".format(hit.score)})")
                 }
             }
         }
         if (reasons.isEmpty()) reasons.add("Ảnh rõ, đủ chi tiết")
+
+        // Ngưỡng ảnh đề xuất: trùng thì đặt cao hơn mức trùng; ảnh rõ & duy nhất thì hạ thấp để chịu sai khác nhỏ
+        val sugImg: Double
+        val noteImg: String
+        when {
+            dupScore > 0 -> {
+                sugImg = Math.round(minOf(0.95, dupScore + 0.03) * 100) / 100.0
+                noteImg = "Có hình giống (${"%.2f".format(dupScore)}) nên đặt ngưỡng cao hơn mức đó" +
+                    (if (dupScore >= 0.92) "; hai hình quá giống, nên dùng Chữ hoặc Toạ độ" else "")
+            }
+            lowDetail -> { sugImg = 0.88; noteImg = "Ít chi tiết nên đặt ngưỡng chặt" }
+            else -> { sugImg = 0.82; noteImg = "Ảnh rõ, không bị trùng nên hạ ngưỡng để chịu sai khác nhỏ về sáng/màu" }
+        }
+        step.imgSuggested = sugImg
+        step.imgThreshold = sugImg
+        step.imgThrNote = noteImg
 
         // 2b) OCR chữ quanh điểm chạm: lấy dòng chữ chứa (hoặc gần) điểm chạm
         try {
@@ -176,6 +203,18 @@ object StepAnalyzer {
                         }
                         if (dup > 0) { tl = 1; tr.add("Có $dup dòng chữ giống ở chỗ khác trong vùng quét") }
                         if (tr.isEmpty()) tr.add("Chữ rõ, không bị trùng")
+                        var ts = when {
+                            nrm.length <= 4 -> 0.9
+                            nrm.length <= 8 -> 0.8
+                            nrm.length <= 15 -> 0.75
+                            else -> 0.7
+                        }
+                        if (dup > 0) ts = minOf(0.95, ts + 0.05)
+                        step.textSuggested = ts
+                        step.textThreshold = ts
+                        step.textThrNote = "Chữ " + nrm.length + " ký tự: " +
+                            (if (nrm.length <= 4) "ngắn nên đòi khớp gần chính xác" else "dài hơn nên cho phép lệch vài ký tự do OCR") +
+                            (if (dup > 0) "; có dòng giống nên tăng thêm" else "")
                     }
                     step.ocrRaw = raw
                     step.editedText = raw
@@ -425,7 +464,7 @@ object RecBuild {
         for ((i, s) in steps.withIndex()) {
             when (effectiveMode(s, i)) {
                 RecStep.IMAGE -> {
-                    val r = Rule(name = "$namePrefix ${rules.size + 1}", type = Rule.IMAGE, threshold = 0.85, cooldownMs = 1000)
+                    val r = Rule(name = "$namePrefix ${rules.size + 1}", type = Rule.IMAGE, threshold = s.imgThreshold, cooldownMs = 1000)
                     val rg = s.region!!
                     r.regions = mutableListOf(s.searchRegion ?: rg)
                     r.tplRegion = rg
@@ -435,7 +474,7 @@ object RecBuild {
                 }
                 RecStep.TEXT -> {
                     val tb = s.textBox!!
-                    val r = Rule(name = "$namePrefix ${rules.size + 1}", type = Rule.TEXT, text = s.editedText.trim(), fuzzy = true, threshold = 0.8, cooldownMs = 1000)
+                    val r = Rule(name = "$namePrefix ${rules.size + 1}", type = Rule.TEXT, text = s.editedText.trim(), fuzzy = true, threshold = s.textThreshold, cooldownMs = 1000)
                     r.regions = mutableListOf(s.textRegion ?: tb)
                     r.macro = macroFor(s, useMatch = true, wait = 0, cx = (tb.l + tb.r) / 2, cy = (tb.t + tb.b) / 2)
                     rules.add(r)

@@ -414,7 +414,17 @@ class FloatingButton(
         val row1 = newRow()
         row1.add("📁 Bộ luật") { showProfiles = true; buildPanel(); clamp(); update() }
         row1.add("+ Luật") { collapse(); onAddRule() }
-        row1.add("● Ghi") { collapse(); onRecord() }
+        row1.addView(
+            action("● Ghi") { collapse(); onRecord() }.apply {
+                val sp = android.text.SpannableString("● Ghi")
+                val fl = android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                sp.setSpan(android.text.style.ForegroundColorSpan(0xFFFF1744.toInt()), 0, 1, fl)
+                sp.setSpan(android.text.style.RelativeSizeSpan(1.5f), 0, 1, fl)
+                sp.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, sp.length, fl)
+                text = sp
+            },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(dp(2), 0, dp(2), 0) },
+        )
         panel.addView(row1)
         val row2 = newRow().apply { setPadding(0, dp(2), 0, 0) }
         row2.add("Mở app") { collapse(); onOpenApp() }

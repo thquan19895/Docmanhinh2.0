@@ -82,7 +82,11 @@ class RecordPreviewActivity : Activity() {
         setContentView(ScrollView(this).apply { addView(root) })
     }
 
-    override fun onResume() { super.onResume(); h.post(poll) }
+    override fun onResume() {
+        super.onResume()
+        runCatching { getSystemService(android.app.NotificationManager::class.java).cancel(2) }
+        h.post(poll)
+    }
     override fun onPause() { super.onPause(); h.removeCallbacks(poll) }
 
     /** Thanh trượt ngưỡng 0.60–0.98 kèm số đề xuất và giải thích. */

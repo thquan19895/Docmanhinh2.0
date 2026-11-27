@@ -638,15 +638,36 @@ class CaptureService : Service() {
     }
 
     private fun stopRecord() {
-        recOv?.hide(); recOv = null
-        AppState.picking = false
-        showBubble()
-        AppState.log("■ Dừng ghi: ${RecState.steps.size} bước")
-        if (RecState.steps.isEmpty()) {
+        val n = RecState.steps.size
+        AppState.log("■ Dừng ghi: $n bước")
+        if (n == 0) {
+            recOv?.hide(); recOv = null
+            AppState.picking = false
+            showBubble()
             AppToast.show(this, "Chưa ghi được thao tác nào", Toast.LENGTH_SHORT)
-        } else {
-            startActivity(Intent(this, RecordPreviewActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
         }
+        val open = Intent(this, RecordPreviewActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        // Mở màn xem trước KHI lớp phủ ghi còn hiện: Android chỉ cho app mở Activity từ nền nếu app đang có cửa sổ nổi hiển thị
+        val ok = runCatching { startActivity(open) }.isSuccess
+        if (!ok) AppState.log("⚠ Không mở được màn xem trước trực tiếp, hãy bấm thông báo 'Đã ghi $n bước'")
+        // Dự phòng: thông báo bấm để mở (một số máy chặn mở Activity từ nền)
+        runCatching {
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(NotificationChannel("sw_record", "Bản ghi thao tác", NotificationManager.IMPORTANCE_HIGH))
+            val pi = PendingIntent.getActivity(this, 2, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            nm.notify(2, Notification.Builder(this, "sw_record")
+                .setSmallIcon(android.R.drawable.ic_menu_edit)
+                .setContentTitle("Đã ghi $n bước")
+                .setContentText("Bấm để xem trước và lưu thành bộ luật")
+                .setContentIntent(pi).setAutoCancel(true).build())
+        }
+        AppToast.show(this, "Đã ghi $n bước. Nếu chưa thấy màn xem trước, kéo thông báo xuống để mở.", Toast.LENGTH_LONG)
+        main.postDelayed({
+            recOv?.hide(); recOv = null
+            AppState.picking = false
+            showBubble()
+        }, 700)
     }
 
     /** Lớp phủ chỉnh điểm chạm / vuốt của luật: hiện số 1, 2, 3..., giữ ngón tay để thêm, chạm để chỉnh. */

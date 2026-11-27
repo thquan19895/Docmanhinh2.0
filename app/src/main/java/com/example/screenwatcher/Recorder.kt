@@ -10,6 +10,7 @@ import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
@@ -406,40 +407,92 @@ class RecordOverlay(
 
     private inner class RecView : View(ctx) {
         private val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xE6D32F2F.toInt() }
-        private val tx = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 14 * d; isFakeBoldText = true; textAlign = Paint.Align.CENTER }
-        private val stopRect = RectF()
+        private val bgStop = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF8E1B1B.toInt() }
+        private val tx = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 13 * d; isFakeBoldText = true; textAlign = Paint.Align.CENTER }
+        private val sq = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+        private val sp = ctx.getSharedPreferences("sw", Context.MODE_PRIVATE)
+        private val bw = 84 * d      // bề rộng cả viên thuốc
+        private val bh = 30 * d      // bề cao
+        private val stopW = 34 * d   // vùng nút Dừng bên phải
+        private var bl = sp.getFloat("recBadgeX", -1f)
+        private var bt = sp.getFloat("recBadgeY", -1f)
+        private val badge = RectF()
+        private val stopZone = RectF()
+        private var dragging = false
+        private var offX = 0f
+        private var offY = 0f
+        private var downX = 0f
+        private var downY = 0f
+        private val longPress = Runnable {
+            dragging = true
+            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            invalidate()
+        }
+
+        private fun layoutBadge() {
+            if (bl < 0f || bt < 0f) { bl = (width - bw) / 2f; bt = 30 * d }
+            bl = bl.coerceIn(0f, maxOf(0f, width - bw))
+            bt = bt.coerceIn(0f, maxOf(0f, height - bh))
+            badge.set(bl, bt, bl + bw, bt + bh)
+            stopZone.set(bl + bw - stopW, bt, bl + bw, bt + bh)
+        }
 
         override fun onDraw(c: Canvas) {
-            val w = 190 * d
-            val h = 40 * d
-            val l = (width - w) / 2f
-            val t = 30 * d
-            stopRect.set(l, t, l + w, t + h)
-            c.drawRoundRect(stopRect, 20 * d, 20 * d, bg)
-            c.drawText("● GHI ${RecState.steps.size} bước · ■ Dừng", stopRect.centerX(), stopRect.centerY() + 5 * d, tx)
+            layoutBadge()
+            c.drawRoundRect(badge, bh / 2f, bh / 2f, bg)
+            c.drawRoundRect(stopZone, bh / 2f, bh / 2f, bgStop)
+            c.drawText("● ${RecState.steps.size}", badge.left + (bw - stopW) / 2f, badge.centerY() + 5 * d, tx)
+            val s = 11 * d
+            c.drawRoundRect(
+                RectF(stopZone.centerX() - s / 2f, stopZone.centerY() - s / 2f, stopZone.centerX() + s / 2f, stopZone.centerY() + s / 2f),
+                2 * d, 2 * d, sq,
+            )
         }
 
         override fun onTouchEvent(e: MotionEvent): Boolean {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    stopTouch = stopRect.contains(e.x, e.y)
-                    if (stopTouch || busy) return true
+                    layoutBadge()
+                    stopTouch = badge.contains(e.x, e.y)
+                    if (stopTouch) {
+                        // Chạm vào viên thuốc: chạm nhanh vào ■ = Dừng; giữ lâu rồi kéo = di chuyển
+                        dragging = false
+                        offX = e.x - bl; offY = e.y - bt
+                        downX = e.x; downY = e.y
+                        postDelayed(longPress, 350)
+                        return true
+                    }
+                    if (busy) return true
                     downAt = SystemClock.uptimeMillis()
                     sx = e.rawX; sy = e.rawY
                     pts.clear(); pts.add(sx); pts.add(sy)
                     downFrame = snapshot()
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (!stopTouch && !busy && pts.size < 600) {
+                    if (stopTouch) {
+                        if (dragging) { bl = e.x - offX; bt = e.y - offY; invalidate() }
+                        else if (hypot(e.x - downX, e.y - downY) > 10 * d) removeCallbacks(longPress)
+                        return true
+                    }
+                    if (!busy && pts.size < 600) {
                         val lx = pts[pts.size - 2]; val ly = pts[pts.size - 1]
                         if (hypot(e.rawX - lx, e.rawY - ly) > 8 * d) { pts.add(e.rawX); pts.add(e.rawY) }
                     }
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (stopTouch) { if (stopRect.contains(e.x, e.y)) onStop(); stopTouch = false }
-                    else if (!busy) finishGesture(e.rawX, e.rawY)
+                    if (stopTouch) {
+                        removeCallbacks(longPress)
+                        if (dragging) {
+                            dragging = false
+                            sp.edit().putFloat("recBadgeX", bl).putFloat("recBadgeY", bt).apply()
+                            invalidate()
+                        } else if (stopZone.contains(e.x, e.y)) onStop()
+                        stopTouch = false
+                        return true
+                    }
+                    if (!busy) finishGesture(e.rawX, e.rawY)
                 }
-                MotionEvent.ACTION_CANCEL -> { stopTouch = false }
+                MotionEvent.ACTION_CANCEL -> { removeCallbacks(longPress); dragging = false; stopTouch = false }
             }
             return true
         }

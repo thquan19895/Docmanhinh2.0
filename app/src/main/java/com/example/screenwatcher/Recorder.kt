@@ -283,7 +283,6 @@ class RecordOverlay(
     private val lock = Mutex()
     private val cropPx = (44 * d).toInt().coerceIn(80, 200)
     private var view: RecView? = null
-    private var lp: WindowManager.LayoutParams? = null
 
     @Volatile private var busy = false
     private var lastUpAt = 0L
@@ -294,31 +293,47 @@ class RecordOverlay(
     private val pts = ArrayList<Float>()
     private var stopTouch = false
 
+    private fun newParams() = WindowManager.LayoutParams(
+        WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+        PixelFormat.TRANSLUCENT,
+    )
+
     fun show() {
-        val v = RecView()
-        val p = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT,
-        )
-        if (runCatching { wm.addView(v, p) }.isSuccess) { view = v; lp = p }
+        view = RecView()
         RecState.recording = true
+        attach()
     }
 
     fun hide() {
         RecState.recording = false
-        view?.let { runCatching { wm.removeView(it) } }
+        if (attached) view?.let { runCatching { wm.removeViewImmediate(it) } }
+        attached = false
         view = null
     }
 
-    private fun setTouchable(on: Boolean) {
+    @Volatile private var attached = false
+
+    /** Gỡ hẳn lớp phủ (đồng bộ) để cú chạm thay chắc chắn rơi xuống app bên dưới, không bị lớp phủ ăn mất. */
+    private fun detach() {
         val v = view ?: return
-        val p = lp ?: return
-        p.flags = if (on) p.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-        else p.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        runCatching { wm.updateViewLayout(v, p) }
+        if (!attached) return
+        runCatching { wm.removeViewImmediate(v) }
+        attached = false
+    }
+
+    private fun attach() {
+        val v = view ?: return
+        if (attached || !RecState.recording) return
+        if (runCatching { wm.addView(v, newParams()) }.isSuccess) attached = true
+    }
+
+    private suspend fun onMain(block: () -> Unit) {
+        val d = kotlinx.coroutines.CompletableDeferred<Unit>()
+        main.post { try { block() } finally { d.complete(Unit) } }
+        d.await()
     }
 
     private fun finishGesture(ex: Float, ey: Float) {
@@ -346,7 +361,7 @@ class RecordOverlay(
         val replayDur = when (kind) {
             "swipe" -> dur.coerceIn(120L, 2500L)
             "longtap" -> dur.coerceIn(450L, 3000L)
-            else -> 60L
+            else -> dur.coerceIn(70L, 250L)
         }
         val step = RecStep(
             kind, sx.toInt(), sy.toInt(), ex.toInt(), ey.toInt(), replayDur, gap,
@@ -366,19 +381,26 @@ class RecordOverlay(
             }
         }
 
-        // Chạm thay vào app bên dưới (tạm cho lớp phủ không nhận chạm)
+        // Chạm thay vào app bên dưới: gỡ lớp phủ -> chạm (thử lại 1 lần nếu bị huỷ) -> gắn lại lớp phủ
         busy = true
-        setTouchable(false)
+        val idx = RecState.steps.size
         scope.launch {
-            delay(40)
+            onMain { detach() }
+            delay(50) // để hệ thống cập nhật xong danh sách cửa sổ nhận chạm
             val svc = AutoClickService.instance
+            var ok = false
             if (svc != null) {
-                if (kind == "swipe") {
-                    if (route.size >= 4) svc.path(route.toFloatArray(), replayDur) else svc.swipe(sx, sy, ex, ey, replayDur)
-                } else svc.tap(sx, sy, replayDur)
+                for (attempt in 0..1) {
+                    if (ok) break
+                    ok = if (kind == "swipe") {
+                        if (route.size >= 4) svc.path(route.toFloatArray(), replayDur) else svc.swipe(sx, sy, ex, ey, replayDur)
+                    } else svc.tap(sx, sy, replayDur)
+                    if (!ok) delay(80)
+                }
             }
-            delay(80)
-            main.post { setTouchable(true); busy = false; lastUpAt = SystemClock.uptimeMillis() }
+            if (!ok) AppState.log("⚠ Bước $idx: phát lại thao tác không thành công (bị huỷ hoặc dịch vụ trợ năng chưa sẵn sàng)")
+            delay(60)
+            onMain { attach(); busy = false; lastUpAt = SystemClock.uptimeMillis() }
         }
     }
 

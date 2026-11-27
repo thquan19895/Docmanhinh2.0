@@ -47,7 +47,7 @@ object ProfileStore {
         val now = System.currentTimeMillis()
         val o = JSONObject()
             .put("name", clean).put("savedAt", now)
-            .put("seqOn", RuleStore.seqOn(c)).put("seqCycles", RuleStore.seqCycles(c)).put("seqGap", RuleStore.seqGap(c))
+            .put("seqOn", RuleStore.seqOn(c)).put("seqCycles", RuleStore.seqCycles(c)).put("seqGap", RuleStore.seqGap(c)).put("seqWait", RuleStore.seqWaitLimit(c))
             .put("interval", RuleStore.interval(c))
             .put("rules", JSONArray().also { a -> rules.forEach { a.put(it.toJson()) } })
         File(d, FILE).writeText(o.toString())
@@ -97,6 +97,7 @@ object ProfileStore {
         RuleStore.setSeqOn(c, o.optBoolean("seqOn", false))
         RuleStore.setSeqCycles(c, o.optInt("seqCycles", 1))
         RuleStore.setSeqGap(c, o.optLong("seqGap", 0L))
+        RuleStore.setSeqWaitLimit(c, o.optLong("seqWait", 60_000L))
         RuleStore.setInterval(c, o.optLong("interval", 700L))
         return true
     }

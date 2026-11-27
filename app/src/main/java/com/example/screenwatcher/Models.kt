@@ -45,13 +45,15 @@ data class Rule(
     var tplRegion: Region? = null,
     /** Sau khi luật khớp: chờ bấy nhiêu ms rồi mới chạy macro (0 = chạy ngay). */
     var delayBeforeMs: Long = 0L,
+    /** Chế độ tuần tự: chờ luật này tối đa bấy nhiêu ms, quá hạn coi là kẹt (0 = dùng hạn chờ chung). */
+    var waitLimitMs: Long = 0L,
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id).put("name", name).put("type", type).put("text", text)
         .put("fuzzy", fuzzy).put("threshold", threshold).put("macro", macro)
         .put("cooldownMs", cooldownMs).put("enabled", enabled)
         .put("repeatCount", repeatCount).put("repeatDelayMs", repeatDelayMs)
-        .put("delayBeforeMs", delayBeforeMs).put("changeMode", changeMode).put("diffThreshold", diffThreshold).put("thenProfile", thenProfile)
+        .put("delayBeforeMs", delayBeforeMs).put("waitLimitMs", waitLimitMs).put("changeMode", changeMode).put("diffThreshold", diffThreshold).put("thenProfile", thenProfile)
         .put("regions", JSONArray().also { a -> regions.forEach { a.put(it.toJson()) } })
         .also { o -> tplRegion?.let { o.put("tplRegion", it.toJson()) } }
 
@@ -84,6 +86,7 @@ data class Rule(
                 diffThreshold = o.optDouble("diffThreshold", 0.10),
                 thenProfile = o.optString("thenProfile", ""),
                 delayBeforeMs = o.optLong("delayBeforeMs", 0L),
+                waitLimitMs = o.optLong("waitLimitMs", 0L),
                 tplRegion = o.optJSONArray("tplRegion")?.let { runCatching { Region.from(it) }.getOrNull() },
             )
         }
@@ -140,6 +143,9 @@ object RuleStore {
     /** Thời gian nghỉ (ms) giữa hai vòng khi chạy tuần tự (0 = không nghỉ). */
     fun seqGap(c: Context): Long = prefs(c).getLong("seqGap", 0L)
     fun setSeqGap(c: Context, ms: Long) = prefs(c).edit().putLong("seqGap", ms.coerceIn(0L, 86_400_000L)).apply()
+    /** Hạn chờ chung cho mỗi luật ở chế độ tuần tự (ms). 0 = không giới hạn. */
+    fun seqWaitLimit(c: Context): Long = prefs(c).getLong("seqWaitLimit", 60_000L)
+    fun setSeqWaitLimit(c: Context, ms: Long) = prefs(c).edit().putLong("seqWaitLimit", ms.coerceIn(0L, 86_400_000L)).apply()
     fun seqCycles(c: Context): Int = prefs(c).getInt("seqCycles", 1)
     fun setSeqCycles(c: Context, n: Int) = prefs(c).edit().putInt("seqCycles", n.coerceIn(0, 100_000)).apply()
 

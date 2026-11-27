@@ -75,6 +75,7 @@ class CaptureService : Service() {
     private var recOv: RecordOverlay? = null
     private var seqIndex = 0
     private var seqCycle = 0
+    private var seqWaitSince = 0L // lúc bắt đầu chờ luật hiện tại (để phát hiện kẹt)
     @Volatile private var seqResumeAt = 0L // đang nghỉ giữa hai vòng đến thời điểm này
     private var seqLogged = -1
 
@@ -103,7 +104,7 @@ class CaptureService : Service() {
         val was = AppState.monitoring
         AppState.monitoring = on && projection != null
         if (AppState.monitoring && !was) {
-            seqIndex = 0; seqCycle = 0; seqLogged = -1; seqResumeAt = 0L; ChangeMatcher.resetLatches()
+            seqIndex = 0; seqCycle = 0; seqLogged = -1; seqResumeAt = 0L; seqWaitSince = 0L; ChangeMatcher.resetLatches()
             monitorStartAt = SystemClock.elapsedRealtime()
         }
         if (!AppState.monitoring) AppState.seqStatus = ""
@@ -355,9 +356,16 @@ class CaptureService : Service() {
         AppState.seqStatus = "Tuần tự: vòng $cyc • đang chờ luật ${seqIndex + 1}/${rules.size} '${rule.name}'"
         if (seqLogged != seqIndex) {
             seqLogged = seqIndex
+            seqWaitSince = SystemClock.elapsedRealtime()
             AppState.log("⏳ Chờ luật ${seqIndex + 1}/${rules.size}: '${rule.name}'")
         }
-        val hit = safeEval(rule, frame) ?: return
+        val hit = safeEval(rule, frame)
+        if (hit == null) {
+            // Chưa khớp: nếu chờ quá hạn thì coi là kẹt, chạy lại từ luật 1 của chính bộ luật này
+            val limit = if (rule.waitLimitMs > 0) rule.waitLimitMs else RuleStore.seqWaitLimit(this)
+            if (limit > 0 && seqWaitSince > 0 && SystemClock.elapsedRealtime() - seqWaitSince > limit) restartStuckSet(rules, rule, limit)
+            return
+        }
         AppState.log("✔ [${seqIndex + 1}/${rules.size}] '${rule.name}' ${hitText(rule, hit)}")
         Macro.runRule(rule, hit.x, hit.y)
         if (!AppState.monitoring) return
@@ -380,6 +388,22 @@ class CaptureService : Service() {
                 AppState.log("↻ Bắt đầu vòng ${seqCycle + 1}" + (if (total == 0) "" else "/$total"))
             }
         }
+    }
+
+    /** Khoá bộ luật của một luật: luật gộp có hậu tố " [tên bộ]", luật của bộ nền thì khoá rỗng. */
+    private fun setKey(r: Rule): String = Regex(" \\[([^\\]]*)\\]$").find(r.name)?.groupValues?.get(1) ?: ""
+
+    /**
+     * Luật bị kẹt (chờ quá hạn): đưa con trỏ tuần tự về luật đầu tiên của CÙNG bộ luật rồi chạy tiếp như bình thường.
+     * Không dừng theo dõi, không nạp lại bộ luật, không reset trạng thái của các luật khác, nên bộ luật ghép khác không bị ảnh hưởng.
+     */
+    private fun restartStuckSet(rules: List<Rule>, stuck: Rule, limit: Long) {
+        val key = setKey(stuck)
+        val first = rules.indexOfFirst { setKey(it) == key }.coerceAtLeast(0)
+        AppState.log("⚠ Luật '${stuck.name}' chờ quá ${limit / 1000.0} giây vẫn chưa khớp → coi là kẹt, chạy lại từ luật ${first + 1}/${rules.size} '${rules[first].name}'")
+        seqIndex = first
+        seqLogged = -1
+        seqWaitSince = SystemClock.elapsedRealtime()
     }
 
     private suspend fun safeEval(

@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var cyclesEt: EditText
     private lateinit var intervalEt: EditText
     private lateinit var gapEt: EditText
+    private lateinit var waitEt: EditText
     private var lastStatus = ""
     private var updating = false
     private val h = Handler(Looper.getMainLooper())
@@ -180,6 +181,20 @@ class MainActivity : ComponentActivity() {
         gp.addView(gapEt)
         root.addView(gp)
 
+        val wl = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        wl.addView(TextView(this).apply { text = "Hạn chờ mỗi luật (giây, 0 = không giới hạn): " })
+        waitEt = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(fmtSec(RuleStore.seqWaitLimit(this@MainActivity)))
+            minEms = 4
+        }
+        wl.addView(waitEt)
+        root.addView(wl)
+        root.addView(TextView(this).apply {
+            text = "Quá hạn mà luật chưa khớp = luật bị kẹt → bộ luật có luật đó chạy lại từ luật 1 của nó (không dừng, không động tới bộ luật ghép khác). Mỗi luật có thể đặt hạn riêng."
+            textSize = 12f; setPadding(0, 0, 0, dp(6))
+        })
+
         val iv = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         iv.addView(TextView(this).apply { text = "Quét mỗi (ms): " })
         intervalEt = EditText(this).apply {
@@ -221,6 +236,7 @@ class MainActivity : ComponentActivity() {
         intervalEt.text.toString().toLongOrNull()?.let { RuleStore.setInterval(this, it) }
         cyclesEt.text.toString().toIntOrNull()?.let { RuleStore.setSeqCycles(this, it) }
         gapEt.text.toString().replace(',', '.').toDoubleOrNull()?.let { RuleStore.setSeqGap(this, (it * 1000).toLong()) }
+        waitEt.text.toString().replace(',', '.').toDoubleOrNull()?.let { RuleStore.setSeqWaitLimit(this, (it * 1000).toLong()) }
     }
 
     private fun fmtSec(ms: Long) = if (ms % 1000 == 0L) (ms / 1000).toString() else (ms / 1000.0).toString()
@@ -309,6 +325,7 @@ class MainActivity : ComponentActivity() {
         h.postDelayed({
             cyclesEt.setText(RuleStore.seqCycles(this).toString())
             gapEt.setText(fmtSec(RuleStore.seqGap(this)))
+            waitEt.setText(fmtSec(RuleStore.seqWaitLimit(this)))
             intervalEt.setText(RuleStore.interval(this).toString())
             updating = true; seqSwitch.isChecked = RuleStore.seqOn(this); updating = false
             rebuildList()
@@ -436,6 +453,7 @@ class MainActivity : ComponentActivity() {
                     selectedProfileId = loaded.id
                     cyclesEt.setText(RuleStore.seqCycles(this).toString())
                     gapEt.setText(fmtSec(RuleStore.seqGap(this)))
+                    waitEt.setText(fmtSec(RuleStore.seqWaitLimit(this)))
                     intervalEt.setText(RuleStore.interval(this).toString())
                     updating = true; seqSwitch.isChecked = RuleStore.seqOn(this); updating = false
                 }

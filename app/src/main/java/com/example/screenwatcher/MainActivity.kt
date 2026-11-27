@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var list: LinearLayout
     private lateinit var profileList: LinearLayout
     private lateinit var profileDropdown: Button
+    private lateinit var recBtn: Button
     private var selectedProfileId: String? = null
     private lateinit var backupBox: LinearLayout
     private var dropdownOpen = false
@@ -205,6 +206,9 @@ class MainActivity : ComponentActivity() {
         iv.addView(intervalEt)
         root.addView(iv)
 
+        recBtn = btn("") { startActivity(Intent(this, RecordPreviewActivity::class.java)) }
+        recBtn.visibility = View.GONE
+        root.addView(recBtn)
         root.addView(btn("💾 Lưu luật hiện tại thành bộ luật mới") { saveProfile() })
         profileDropdown = btn("") { dropdownOpen = !dropdownOpen; rebuildProfiles() }
         root.addView(profileDropdown)
@@ -256,6 +260,9 @@ class MainActivity : ComponentActivity() {
         rebuildList()
         rebuildProfiles()
         rebuildBackupRow()
+        val recN = RecState.steps.size
+        recBtn.visibility = if (recN > 0) View.VISIBLE else View.GONE
+        recBtn.text = "📝 Mở bản ghi chưa lưu ($recN bước) — xem trước & lưu"
         h.post(ticker)
     }
 

@@ -362,7 +362,7 @@ class CaptureService : Service() {
         val hit = safeEval(rule, frame)
         if (hit == null) {
             // Chưa khớp: nếu chờ quá hạn thì coi là kẹt, chạy lại từ luật 1 của chính bộ luật này
-            val limit = if (rule.waitLimitMs > 0) rule.waitLimitMs else RuleStore.seqWaitLimit(this)
+            val limit = rule.waitLimitMs // 0 = luật này không dùng hạn chờ kẹt, chờ mãi như cũ
             if (limit > 0 && seqWaitSince > 0 && SystemClock.elapsedRealtime() - seqWaitSince > limit) restartStuckSet(rules, rule, limit)
             return
         }

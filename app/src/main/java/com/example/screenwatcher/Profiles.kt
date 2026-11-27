@@ -97,7 +97,7 @@ object ProfileStore {
         RuleStore.setSeqOn(c, o.optBoolean("seqOn", false))
         RuleStore.setSeqCycles(c, o.optInt("seqCycles", 1))
         RuleStore.setSeqGap(c, o.optLong("seqGap", 0L))
-        RuleStore.setSeqWaitLimit(c, o.optLong("seqWait", 60_000L))
+        RuleStore.setSeqWaitLimit(c, o.optLong("seqWait", 0L))
         RuleStore.setInterval(c, o.optLong("interval", 700L))
         return true
     }

@@ -45,7 +45,7 @@ data class Rule(
     var tplRegion: Region? = null,
     /** Sau khi luật khớp: chờ bấy nhiêu ms rồi mới chạy macro (0 = chạy ngay). */
     var delayBeforeMs: Long = 0L,
-    /** Chế độ tuần tự: chờ luật này tối đa bấy nhiêu ms, quá hạn coi là kẹt (0 = dùng hạn chờ chung). */
+    /** Chế độ tuần tự: chờ luật này tối đa bấy nhiêu ms, quá hạn coi là kẹt (0 = không dùng hạn chờ kẹt, chờ mãi). */
     var waitLimitMs: Long = 0L,
 ) {
     fun toJson(): JSONObject = JSONObject()
@@ -143,8 +143,8 @@ object RuleStore {
     /** Thời gian nghỉ (ms) giữa hai vòng khi chạy tuần tự (0 = không nghỉ). */
     fun seqGap(c: Context): Long = prefs(c).getLong("seqGap", 0L)
     fun setSeqGap(c: Context, ms: Long) = prefs(c).edit().putLong("seqGap", ms.coerceIn(0L, 86_400_000L)).apply()
-    /** Hạn chờ chung cho mỗi luật ở chế độ tuần tự (ms). 0 = không giới hạn. */
-    fun seqWaitLimit(c: Context): Long = prefs(c).getLong("seqWaitLimit", 60_000L)
+    /** Hạn chờ mặc định điền sẵn cho luật mới (ms). 0 = không dùng hạn chờ kẹt. */
+    fun seqWaitLimit(c: Context): Long = prefs(c).getLong("seqWaitLimit", 0L)
     fun setSeqWaitLimit(c: Context, ms: Long) = prefs(c).edit().putLong("seqWaitLimit", ms.coerceIn(0L, 86_400_000L)).apply()
     fun seqCycles(c: Context): Int = prefs(c).getInt("seqCycles", 1)
     fun setSeqCycles(c: Context, n: Int) = prefs(c).edit().putInt("seqCycles", n.coerceIn(0, 100_000)).apply()

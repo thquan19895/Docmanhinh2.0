@@ -107,7 +107,7 @@ adb install -r apk/ScreenWatcher-debug.apk
 Giới hạn: kéo thả liên tục (cần xoay nhân vật) không mượt vì thao tác được phát lại sau khi nhấc tay; màn hình chặn chụp sẽ không có ảnh mẫu.
 
 ## Hạn chờ luật (chống treo khi chạy tuần tự)
-- Cài đặt chung: **Hạn chờ mỗi luật (giây)** trên màn hình chính (mặc định 60 giây, 0 = không giới hạn). Mỗi luật có thể đặt hạn riêng trong màn hình sửa luật (0 = dùng hạn chung).
-- Luật chờ quá hạn mà chưa khớp = **kẹt** → con trỏ tuần tự quay về **luật đầu tiên của chính bộ luật đó** và chạy tiếp bình thường (cùng vòng, không tính thêm vòng). Không dừng theo dõi, không nạp lại bộ luật, không reset trạng thái các luật khác, nên các bộ luật gộp khác không bị ảnh hưởng.
-- Bộ luật gộp được nhận biết qua hậu tố ` [tên bộ]` trong tên luật; luật của bộ nền không có hậu tố.
-- Hạn chờ được lưu cùng bộ luật.
+- Đặt **riêng trong từng luật** (màn hình sửa luật, ô "Hạn chờ luật này khi chạy tuần tự", giây). **0 = luật đó không dùng hạn chờ kẹt**: chờ mãi như trước, vẫn chạy tuần tự bình thường.
+- Luật có đặt hạn mà chờ quá hạn chưa khớp = **kẹt** → con trỏ tuần tự quay về **luật đầu tiên của chính bộ luật đó** và chạy tiếp bình thường (cùng vòng, không tính thêm vòng). Không dừng theo dõi, không nạp lại bộ luật, không reset trạng thái các luật khác, nên các bộ luật gộp khác không bị ảnh hưởng.
+- Trên màn hình chính có ô **Hạn chờ mặc định cho luật mới** (mặc định 0 = không dùng): chỉ là giá trị điền sẵn cho luật mới và luật tạo bằng Ghi thao tác; luật đã có giữ nguyên.
+- Bộ luật gộp được nhận biết qua hậu tố ` [tên bộ]` trong tên luật. Hạn chờ được lưu cùng bộ luật.

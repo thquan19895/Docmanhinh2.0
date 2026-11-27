@@ -486,7 +486,7 @@ object RecBuild {
         for ((i, s) in steps.withIndex()) {
             when (effectiveMode(s, i)) {
                 RecStep.IMAGE -> {
-                    val r = Rule(name = "$namePrefix ${rules.size + 1}", type = Rule.IMAGE, threshold = s.imgThreshold, cooldownMs = 1000)
+                    val r = Rule(name = "$namePrefix ${rules.size + 1}", type = Rule.IMAGE, threshold = s.imgThreshold, cooldownMs = 1000, waitLimitMs = RuleStore.seqWaitLimit(c))
                     val rg = s.region!!
                     r.regions = mutableListOf(s.searchRegion ?: rg)
                     r.tplRegion = rg
@@ -496,7 +496,7 @@ object RecBuild {
                 }
                 RecStep.TEXT -> {
                     val tb = s.textBox!!
-                    val r = Rule(name = "$namePrefix ${rules.size + 1}", type = Rule.TEXT, text = s.editedText.trim(), fuzzy = true, threshold = s.textThreshold, cooldownMs = 1000)
+                    val r = Rule(name = "$namePrefix ${rules.size + 1}", type = Rule.TEXT, text = s.editedText.trim(), fuzzy = true, threshold = s.textThreshold, cooldownMs = 1000, waitLimitMs = RuleStore.seqWaitLimit(c))
                     r.regions = mutableListOf(s.textRegion ?: tb)
                     r.macro = macroFor(s, useMatch = true, wait = 0, cx = (tb.l + tb.r) / 2, cy = (tb.t + tb.b) / 2)
                     rules.add(r)

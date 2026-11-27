@@ -182,7 +182,7 @@ class MainActivity : ComponentActivity() {
         root.addView(gp)
 
         val wl = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        wl.addView(TextView(this).apply { text = "Hạn chờ mỗi luật (giây, 0 = không giới hạn): " })
+        wl.addView(TextView(this).apply { text = "Hạn chờ mặc định cho luật MỚI (giây, 0 = không dùng): " })
         waitEt = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             setText(fmtSec(RuleStore.seqWaitLimit(this@MainActivity)))
@@ -191,7 +191,7 @@ class MainActivity : ComponentActivity() {
         wl.addView(waitEt)
         root.addView(wl)
         root.addView(TextView(this).apply {
-            text = "Quá hạn mà luật chưa khớp = luật bị kẹt → bộ luật có luật đó chạy lại từ luật 1 của nó (không dừng, không động tới bộ luật ghép khác). Mỗi luật có thể đặt hạn riêng."
+            text = "Chỉ là giá trị điền sẵn cho luật mới / luật tạo bằng Ghi. Hạn chờ kẹt thật sự đặt riêng trong từng luật (0 = luật đó không dùng hạn chờ kẹt, vẫn chạy tuần tự bình thường). Quá hạn chưa khớp = kẹt → chạy lại từ luật 1 của bộ luật có luật đó, không động tới bộ luật ghép khác."
             textSize = 12f; setPadding(0, 0, 0, dp(6))
         })
 

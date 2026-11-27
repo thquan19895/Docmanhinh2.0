@@ -58,7 +58,7 @@ class RuleEditActivity : Activity() {
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        rule = intent.getStringExtra("id")?.let { RuleStore.get(this, it) } ?: Rule()
+        rule = intent.getStringExtra("id")?.let { RuleStore.get(this, it) } ?: Rule(waitLimitMs = RuleStore.seqWaitLimit(this))
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -233,7 +233,7 @@ class RuleEditActivity : Activity() {
         }
         root.addView(delayBeforeEt)
 
-        root.addView(label("Hạn chờ luật này khi chạy tuần tự (giây). Quá hạn chưa khớp = kẹt → chạy lại từ luật 1 của bộ luật. 0 = dùng hạn chờ chung"))
+        root.addView(label("Hạn chờ luật này khi chạy tuần tự (giây). Quá hạn chưa khớp = kẹt → chạy lại từ luật 1 của bộ luật. 0 = không dùng hạn chờ kẹt (luật này chờ mãi, vẫn chạy tuần tự bình thường)"))
         waitLimitEt = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             setText(if (rule.waitLimitMs % 1000 == 0L) (rule.waitLimitMs / 1000).toString() else (rule.waitLimitMs / 1000.0).toString())

@@ -138,6 +138,9 @@ object RuleStore {
     fun setBubblePos(c: Context, x: Int, y: Int) = prefs(c).edit().putInt("bx", x).putInt("by", y).apply()
 
     /** Chạy tuần tự: luật 1 -> 2 -> 3 ... xong hết thì lặp lại theo số vòng (0 = mãi). */
+    /** Nhiều bộ luật: true = chạy RIÊNG BIỆT (bộ khớp bước 1 trước chiếm quyền, bộ đang chạy bị ngắt); false = song song như cũ. */
+    fun multiExclusive(c: Context): Boolean = prefs(c).getBoolean("multiExclusive", false)
+    fun setMultiExclusive(c: Context, on: Boolean) = prefs(c).edit().putBoolean("multiExclusive", on).apply()
     fun seqOn(c: Context): Boolean = prefs(c).getBoolean("seqOn", false)
     fun setSeqOn(c: Context, on: Boolean) = prefs(c).edit().putBoolean("seqOn", on).apply()
     /** Thời gian nghỉ (ms) giữa hai vòng khi chạy tuần tự (0 = không nghỉ). */

@@ -30,6 +30,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -70,11 +72,19 @@ class CaptureService : Service() {
     private var overlay: SelectorOverlay? = null
     private var fab: FloatingButton? = null
     private var loop: Job? = null
-    private val lastFire = HashMap<String, Long>()
+    private val lastFire = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private var editor: ActionEditorOverlay? = null
     private var recOv: RecordOverlay? = null
     private var seqIndex = 0
     private var seqCycle = 0
+    // ---- Chế độ nhiều bộ luật chạy riêng biệt ----
+    private class ExSet(val key: String, val rules: List<Rule>)
+    private val exPtr = java.util.concurrent.ConcurrentHashMap<String, Int>() // bước đang chờ của mỗi bộ (0 = chờ bước 1)
+    @Volatile private var exActive: String? = null // bộ đang chạy dở, null = chưa có bộ nào
+    private var exJob: Job? = null
+    private var exGen = 0
+    private var exWaitSince = 0L
+    private val exLock = Any()
     private var seqWaitSince = 0L // lúc bắt đầu chờ luật hiện tại (để phát hiện kẹt)
     @Volatile private var seqResumeAt = 0L // đang nghỉ giữa hai vòng đến thời điểm này
     private var seqLogged = -1
@@ -104,10 +114,10 @@ class CaptureService : Service() {
         val was = AppState.monitoring
         AppState.monitoring = on && projection != null
         if (AppState.monitoring && !was) {
-            seqIndex = 0; seqCycle = 0; seqLogged = -1; seqResumeAt = 0L; seqWaitSince = 0L; ChangeMatcher.resetLatches()
+            seqIndex = 0; seqCycle = 0; seqLogged = -1; seqResumeAt = 0L; seqWaitSince = 0L; ChangeMatcher.resetLatches(); resetAllEx()
             monitorStartAt = SystemClock.elapsedRealtime()
         }
-        if (!AppState.monitoring) AppState.seqStatus = ""
+        if (!AppState.monitoring) { AppState.seqStatus = ""; resetAllEx() }
         getSystemService(NotificationManager::class.java).notify(1, notif())
         AppState.log(if (AppState.monitoring) "▶ Bắt đầu theo dõi" else "⏸ Dừng theo dõi")
         fab?.refresh()
@@ -307,6 +317,7 @@ class CaptureService : Service() {
 
     private suspend fun tick() {
         val frame = grab() ?: return
+        if (RuleStore.multiExclusive(this) && tickExclusive(frame)) return
         if (RuleStore.seqOn(this)) { tickSequence(frame); return }
         for (rule in RuleStore.load(this).filter { it.enabled }) {
             val now = SystemClock.elapsedRealtime()
@@ -388,6 +399,103 @@ class CaptureService : Service() {
                 AppState.log("↻ Bắt đầu vòng ${seqCycle + 1}" + (if (total == 0) "" else "/$total"))
             }
         }
+    }
+
+    /* ---------------- nhiều bộ luật chạy riêng biệt ---------------- */
+
+    private fun exSets(): List<ExSet> {
+        val m = LinkedHashMap<String, MutableList<Rule>>()
+        for (r in RuleStore.load(this).filter { it.enabled }) m.getOrPut(setKey(r)) { ArrayList() }.add(r)
+        return m.map { ExSet(it.key, it.value) }
+    }
+
+    private fun exLabel(key: String): String = if (key.isEmpty()) "nền" else key
+
+    private fun resetAllEx() {
+        synchronized(exLock) { exGen++; exActive = null; exPtr.clear(); exWaitSince = 0L }
+        exJob?.cancel(); exJob = null
+    }
+
+    /** Một bước của bộ [s] khớp: chạy macro ở nền (có thể bị ngắt), xong thì sang bước kế. */
+    private fun exStartStep(s: ExSet, p: Int, hit: Hit) {
+        val rule = s.rules[p]
+        val gen = synchronized(exLock) { ++exGen }
+        lastFire[rule.id] = SystemClock.elapsedRealtime()
+        exActive = s.key
+        AppState.log("✔ [${exLabel(s.key)} ${p + 1}/${s.rules.size}] '${rule.name}' ${hitText(rule, hit)}")
+        exJob = scope.launch {
+            Macro.runRule(rule, hit.x, hit.y) // bị huỷ giữa chừng nếu bộ khác chiếm quyền
+            exStepDone(s, p, rule, gen)
+        }
+    }
+
+    private fun exStepDone(s: ExSet, p: Int, rule: Rule, gen: Int) {
+        synchronized(exLock) {
+            if (gen != exGen || exActive != s.key) return // đã bị ngắt hoặc reset
+            lastFire[rule.id] = SystemClock.elapsedRealtime()
+            if (!AppState.monitoring) return
+            if (chain(rule)) { exGen++; exActive = null; exPtr.clear(); return }
+            val np = p + 1
+            if (np >= s.rules.size) {
+                AppState.log("✔ Bộ '${exLabel(s.key)}' xong, về bước 1 và chờ khớp")
+                exPtr[s.key] = 0; exActive = null
+            } else {
+                exPtr[s.key] = np; exWaitSince = SystemClock.elapsedRealtime()
+            }
+        }
+    }
+
+    /**
+     * Chế độ riêng biệt. Trả false nếu chưa đủ 2 bộ luật (để chạy theo cách thường).
+     * Mỗi tick: (1) bộ khác khớp bước 1 → ngắt bộ đang chạy (dừng bước + macro, về bước 1) rồi chạy bộ mới;
+     * (2) bộ đang chạy chờ bước hiện tại; (3) chưa có bộ nào chạy thì canh bước 1 của mọi bộ.
+     */
+    private suspend fun tickExclusive(frame: Bitmap): Boolean {
+        val sets = exSets()
+        if (sets.size < 2) return false
+        val now = SystemClock.elapsedRealtime()
+        val active = exActive
+        val running = exJob?.isActive == true
+
+        for (s in sets) {
+            if (s.key == active) continue
+            val r1 = s.rules[0]
+            if (now - (lastFire[r1.id] ?: -1_000_000L) < r1.cooldownMs) continue
+            val hit = safeEval(r1, frame) ?: continue
+            if (active != null) {
+                AppState.log("⇄ Bộ '${exLabel(s.key)}' khớp → ngắt bộ '${exLabel(active)}' (dừng bước + macro, về bước 1)")
+                val job = exJob
+                synchronized(exLock) { exGen++; exActive = null; exPtr[active] = 0 }
+                withTimeoutOrNull(1500) { job?.cancelAndJoin() }
+            }
+            exPtr[s.key] = 0
+            exStartStep(s, 0, hit)
+            return true
+        }
+
+        if (active != null && !running) {
+            val s = sets.firstOrNull { it.key == active }
+            if (s == null) { synchronized(exLock) { exActive = null; exPtr.clear() }; return true }
+            val p = exPtr[active] ?: 1
+            if (p >= s.rules.size || p < 1) { synchronized(exLock) { exActive = null; exPtr[active] = 0 }; return true }
+            val rule = s.rules[p]
+            AppState.seqStatus = "Riêng biệt: bộ '${exLabel(active)}' chờ bước ${p + 1}/${s.rules.size} '${rule.name}'"
+            val hit = safeEval(rule, frame)
+            if (hit == null) {
+                val limit = rule.waitLimitMs
+                if (limit > 0 && exWaitSince > 0 && now - exWaitSince > limit) {
+                    AppState.log("⚠ Bộ '${exLabel(active)}' kẹt ở bước ${p + 1} (quá ${limit / 1000.0} giây) → về bước 1 và chờ khớp")
+                    synchronized(exLock) { exGen++; exActive = null; exPtr[active] = 0 }
+                }
+                return true
+            }
+            exStartStep(s, p, hit)
+        } else if (active != null) {
+            AppState.seqStatus = "Riêng biệt: bộ '${exLabel(active)}' đang chạy macro • ${sets.size - 1} bộ khác đang canh bước 1"
+        } else {
+            AppState.seqStatus = "Riêng biệt: ${sets.size} bộ đang chờ khớp bước 1"
+        }
+        return true
     }
 
     /** Khoá bộ luật của một luật: luật gộp có hậu tố " [tên bộ]", luật của bộ nền thì khoá rỗng. */

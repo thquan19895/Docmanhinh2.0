@@ -40,6 +40,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var profileList: LinearLayout
     private lateinit var profileDropdown: Button
     private lateinit var recBtn: Button
+    private lateinit var exclSwitch: Switch
     private var selectedProfileId: String? = null
     private lateinit var backupBox: LinearLayout
     private var dropdownOpen = false
@@ -162,6 +163,19 @@ class MainActivity : ComponentActivity() {
             }
         }
         root.addView(seqSwitch)
+        exclSwitch = Switch(this).apply {
+            text = "Nhiều bộ luật: chạy RIÊNG BIỆT (tắt = song song)"; setPadding(0, dp(4), 0, dp(4))
+            isChecked = RuleStore.multiExclusive(this@MainActivity)
+            setOnCheckedChangeListener { _, on ->
+                if (updating) return@setOnCheckedChangeListener
+                RuleStore.setMultiExclusive(this@MainActivity, on)
+            }
+        }
+        root.addView(exclSwitch)
+        root.addView(TextView(this).apply {
+            text = "Riêng biệt (cần từ 2 bộ luật gộp trở lên): mỗi bộ tự chạy tuần tự bước 1 → 2 → 3…; khi một bộ đang chạy mà bộ khác khớp bước 1 thì dừng hết bước và macro đang chạy, chuyển sang bộ vừa khớp; bộ bị ngắt về bước 1 và chờ khớp lại. Chế độ này không dùng \"Số vòng\". Song song: các luật chạy độc lập như cũ."
+            textSize = 12f; setPadding(0, 0, 0, dp(6))
+        })
         val cy = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         cy.addView(TextView(this).apply { text = "Số vòng (1 = chỉ 1 lần, 0 = lặp mãi): " })
         cyclesEt = EditText(this).apply {

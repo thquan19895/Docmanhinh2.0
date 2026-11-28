@@ -111,3 +111,11 @@ Giới hạn: kéo thả liên tục (cần xoay nhân vật) không mượt vì
 - Luật có đặt hạn mà chờ quá hạn chưa khớp = **kẹt** → con trỏ tuần tự quay về **luật đầu tiên của chính bộ luật đó** và chạy tiếp bình thường (cùng vòng, không tính thêm vòng). Không dừng theo dõi, không nạp lại bộ luật, không reset trạng thái các luật khác, nên các bộ luật gộp khác không bị ảnh hưởng.
 - Trên màn hình chính có ô **Hạn chờ mặc định cho luật mới** (mặc định 0 = không dùng): chỉ là giá trị điền sẵn cho luật mới và luật tạo bằng Ghi thao tác; luật đã có giữ nguyên.
 - Bộ luật gộp được nhận biết qua hậu tố ` [tên bộ]` trong tên luật. Hạn chờ được lưu cùng bộ luật.
+
+## Nhiều bộ luật: song song hoặc riêng biệt
+- Công tắc trên màn hình chính: **Nhiều bộ luật: chạy RIÊNG BIỆT** (tắt = **song song** như cũ, các luật chạy độc lập).
+- **Riêng biệt** (cần ít nhất 2 bộ luật gộp): mỗi bộ chạy tuần tự bước 1 → 2 → 3… Khi một bộ đang chạy mà **bước 1 của bộ khác khớp** thì app **dừng hết bước và macro đang chạy**, chuyển sang bộ vừa khớp. Bộ bị ngắt **về bước 1 và chờ khớp lại**.
+- Macro chạy ở nền nên app vẫn quét màn hình trong lúc macro chạy để kịp ngắt.
+- Luật vừa chạy sẽ nghỉ theo **thời gian nghỉ giữa 2 lần kích hoạt** (cooldown) của luật, tránh hai bộ giành nhau liên tục.
+- Hạn chờ kẹt của từng luật vẫn dùng: bộ kẹt ở một bước quá hạn thì về bước 1 và chờ khớp.
+- Chế độ này không dùng "Số vòng"; chỉ có 1 bộ luật thì chạy theo cách thường.
